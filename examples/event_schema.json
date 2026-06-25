@@ -1,0 +1,30 @@
+{
+  "fields": [
+    {
+      "name": "event_id",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "event_time",
+      "type": "timestamp",
+      "required": true
+    },
+    {
+      "name": "country",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "customer",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "payload",
+      "type": "string",
+      "required": false
+    }
+  ]
+}
+

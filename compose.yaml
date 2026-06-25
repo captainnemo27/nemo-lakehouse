@@ -1,0 +1,22 @@
+services:
+  dev:
+    image: rust:1.88-slim
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - cargo-cache:/usr/local/cargo/registry
+      - target-cache:/workspace/target
+    command: cargo test
+
+  checks:
+    image: rust:1.88-slim
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - cargo-cache:/usr/local/cargo/registry
+      - target-cache:/workspace/target
+    command: sh -lc "/usr/local/cargo/bin/cargo test && sh scripts/security_check.sh"
+
+volumes:
+  cargo-cache:
+  target-cache:
