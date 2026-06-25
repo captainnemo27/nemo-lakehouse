@@ -133,8 +133,15 @@ impl MetadataGraph {
             collect_virtual_files(node, virtual_files, &mut selected_virtual_files);
         }
 
+        let selected_physical_file_count = selected_virtual_files
+            .values()
+            .map(|virtual_file| virtual_file.physical_files.len() as u64)
+            .sum();
+
         QueryPlan {
             visited_nodes,
+            total_indexed_physical_file_count: self.root.stats.physical_file_count,
+            selected_physical_file_count,
             virtual_files: selected_virtual_files.into_values().cloned().collect(),
         }
     }
@@ -155,8 +162,17 @@ fn collect_virtual_files<'a>(
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct QueryPlan {
     pub visited_nodes: usize,
+    pub total_indexed_physical_file_count: u64,
+    pub selected_physical_file_count: u64,
     pub virtual_files: Vec<VirtualFile>,
+}
+
+impl QueryPlan {
+    pub fn skipped_physical_file_count(&self) -> u64 {
+        self.total_indexed_physical_file_count
+            .saturating_sub(self.selected_physical_file_count)
+    }
 }

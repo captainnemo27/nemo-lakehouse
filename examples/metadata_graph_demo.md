@@ -20,3 +20,15 @@ cargo run --bin nemo -- table plan ./warehouse/events \
   --predicate customer=123
 ```
 
+Synthetic benchmark:
+
+```bash
+cargo run --bin nemo -- bench graph \
+  --countries 8 \
+  --dates 31 \
+  --customers 100 \
+  --files-per-leaf 2 \
+  --country C001 \
+  --date 2026-06-01 \
+  --customer cust-000001
+```

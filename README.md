@@ -80,3 +80,31 @@ With Docker:
 docker compose run --rm dev cargo test
 ```
 
+## Metadata Graph Benchmark
+
+Run a synthetic planning benchmark without writing a warehouse:
+
+```bash
+docker compose run --rm dev /usr/local/cargo/bin/cargo run --bin nemo -- bench graph \
+  --countries 8 \
+  --dates 31 \
+  --customers 100 \
+  --files-per-leaf 2 \
+  --country C001 \
+  --date 2026-06-01 \
+  --customer cust-000001
+```
+
+Expected shape:
+
+```json
+{
+  "manifest_scan_physical_files": 49600,
+  "selected_physical_files": 2,
+  "selected_virtual_files": 1,
+  "skipped_physical_files": 49598,
+  "visited_nodes": 4
+}
+```
+
+This is the research target: for selective predicates, graph planning follows `root -> country -> date -> customer` instead of scanning every manifest/data-file entry.

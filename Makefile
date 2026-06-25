@@ -18,6 +18,9 @@ demo:
 	cargo run --bin nemo -- table append ./warehouse/events --file data/events-vn.parquet --records 100 --partition country=VN --partition date=2026-06 --partition customer=123
 	cargo run --bin nemo -- table plan ./warehouse/events --predicate country=VN --predicate date=2026-06 --predicate customer=123
 
+bench:
+	cargo run --bin nemo -- bench graph --countries 8 --dates 31 --customers 100 --files-per-leaf 2 --country C001 --date 2026-06-01 --customer cust-000001
+
 docker-test:
 	docker compose run --rm dev cargo test
 

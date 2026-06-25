@@ -52,6 +52,9 @@ fn graph_plans_by_predicate_path() {
 
     assert_eq!(plan.virtual_files.len(), 1);
     assert_eq!(plan.virtual_files[0].physical_files, vec!["data/vn.parquet"]);
+    assert_eq!(plan.total_indexed_physical_file_count, 2);
+    assert_eq!(plan.selected_physical_file_count, 1);
+    assert_eq!(plan.skipped_physical_file_count(), 1);
     assert!(plan.visited_nodes < 6);
 }
 
@@ -78,4 +81,3 @@ fn virtual_file_groups_small_files_without_rewrite() {
     assert_eq!(virtual_file.record_count, 30);
     assert_eq!(virtual_file.physical_files.len(), 2);
 }
-
