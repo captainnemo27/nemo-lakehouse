@@ -82,6 +82,8 @@ pub struct Snapshot {
     pub created_at: DateTime<Utc>,
     pub data_files: Vec<DataFile>,
     pub virtual_file_ids: Vec<String>,
+    #[serde(default)]
+    pub removed_virtual_file_ids: Vec<String>,
 }
 
 impl Snapshot {
@@ -90,9 +92,10 @@ impl Snapshot {
         parent_snapshot_id: Option<u64>,
         data_files: Vec<DataFile>,
         virtual_file_ids: Vec<String>,
+        removed_virtual_file_ids: Vec<String>,
     ) -> Result<Self> {
-        if data_files.is_empty() {
-            return Err(NemoError::Commit("snapshot requires at least one data file".into()));
+        if data_files.is_empty() && virtual_file_ids.is_empty() && removed_virtual_file_ids.is_empty() {
+            return Err(NemoError::Commit("snapshot requires at least one data file, virtual file, or removed virtual file".into()));
         }
         for data_file in &data_files {
             data_file.validate()?;
@@ -103,6 +106,7 @@ impl Snapshot {
             created_at: Utc::now(),
             data_files,
             virtual_file_ids,
+            removed_virtual_file_ids,
         })
     }
 }
@@ -148,6 +152,19 @@ impl TableMetadata {
             )));
         }
         self.schema.validate()
+    }
+
+    pub fn rebuild_graph_with_dimensions(
+        &mut self,
+        dimensions: Vec<String>,
+        active_vfs_with_data: &[(VirtualFile, Vec<DataFile>)],
+    ) -> Result<()> {
+        let mut new_graph = MetadataGraph::new(dimensions)?;
+        for (vf, data_files) in active_vfs_with_data {
+            new_graph.insert_virtual_file(vf, data_files)?;
+        }
+        self.graph = new_graph;
+        Ok(())
     }
 }
 

@@ -1,4 +1,4 @@
-.PHONY: test fmt clippy security demo docker-test
+.PHONY: test fmt clippy security check demo bench docker-test docker-check ui
 
 test:
 	cargo test
@@ -12,6 +12,9 @@ clippy:
 security:
 	sh scripts/security_check.sh
 
+check:
+	docker compose run --rm checks
+
 demo:
 	rm -rf warehouse
 	cargo run --bin nemo -- table create ./warehouse/events --schema examples/event_schema.json --graph-dim country --graph-dim date --graph-dim customer
@@ -22,7 +25,10 @@ bench:
 	cargo run --bin nemo -- bench graph --countries 8 --dates 31 --customers 100 --files-per-leaf 2 --country C001 --date 2026-06-01 --customer cust-000001
 
 docker-test:
-	docker compose run --rm dev cargo test
+	docker compose run --rm dev /usr/local/cargo/bin/cargo test --locked
 
 docker-check:
-	docker compose run --rm checks
+	$(MAKE) check
+
+ui:
+	docker compose run --rm --service-ports dev /usr/local/cargo/bin/cargo run --bin nemo-ui

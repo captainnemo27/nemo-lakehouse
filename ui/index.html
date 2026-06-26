@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nemo Lakehouse - Graph-Native Metadata Console</title>
+  <meta name="description" content="Visual administrator console and query analyzer for Nemo Lakehouse graph-native table formats.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="index.css">
+</head>
+<body class="dark-mode">
+  <div class="app-container">
+    <!-- Sidebar: Catalog Navigator -->
+    <aside class="sidebar">
+      <div class="brand">
+        <svg class="logo" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="50" cy="50" r="45" stroke="url(#logoGrad)" stroke-width="8" />
+          <path d="M30 40 L50 65 L70 40" stroke="url(#logoGrad)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" />
+          <line x1="50" y1="25" x2="50" y2="65" stroke="url(#logoGrad)" stroke-width="8" stroke-linecap="round" />
+          <defs>
+            <linearGradient id="logoGrad" x1="0" y1="0" x2="100" y2="100" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#3b82f6" />
+              <stop offset="50%" stop-color="#8b5cf6" />
+              <stop offset="100%" stop-color="#ec4899" />
+            </linearGradient>
+          </defs>
+        </svg>
+        <div class="brand-text">
+          <h1>Nemo</h1>
+          <span class="sub">Lakehouse Format</span>
+        </div>
+      </div>
+
+      <div class="section-title">
+        <span>Catalog Tree</span>
+        <div class="header-actions" style="display: flex; gap: 8px;">
+          <button id="btnNewDomain" class="icon-btn" title="Create New Domain">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+          </button>
+          <button id="btnNewTable" class="icon-btn" title="Create New Table">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          </button>
+        </div>
+      </div>
+
+      <div id="catalogTree" class="catalog-tree-container" style="flex: 1; overflow-y: auto; padding: 12px;">
+        <ul id="treeRoot" class="tree-root">
+          <!-- Populated dynamically -->
+          <li class="loading">Loading catalog...</li>
+        </ul>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="status-indicator online">
+          <span class="dot"></span>
+          <span class="label">Local server online</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Workspace -->
+    <main class="main-content">
+      <!-- Top Bar -->
+      <header class="top-bar">
+        <div class="table-title">
+          <h2 id="currentTableName">Select a Table</h2>
+          <span id="currentTablePath" class="path">warehouse://</span>
+        </div>
+        <div class="tabs">
+          <button id="tabDomainBtn" class="tab-btn" data-tab="tabDomain" style="display: none;">
+            Domain Governance
+          </button>
+          <button id="tabGraphBtn" class="tab-btn active" data-tab="tabGraph">
+            Graph & Files
+          </button>
+          <button id="tabQueryBtn" class="tab-btn" data-tab="tabQuery">
+            Query Planner
+          </button>
+          <button id="tabOpsBtn" class="tab-btn" data-tab="tabOps">
+            Operations
+          </button>
+        </div>
+      </header>
+
+      <!-- Content Views -->
+      <div class="view-container">
+        <!-- TAB 0: Domain Governance & quality rules -->
+        <section id="tabDomain" class="tab-view">
+          <div class="domain-governance-layout" style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; height: 100%;">
+            <!-- Left: Domain Details & Constraints -->
+            <div class="card domain-details-card" style="display: flex; flex-direction: column; height: 100%;">
+              <div class="card-header" style="border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
+                <h3 id="lblDomainName" style="font-size: 1.5rem; background: var(--gradient-brand); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Domain: Loading...</h3>
+                <span id="lblDomainDesc" class="description-sub" style="font-size: 0.85rem; color: var(--text-muted); display: block; margin-top: 4px;">Description loading...</span>
+              </div>
+              <div class="card-body scroll-body" style="flex: 1; overflow-y: auto; padding: 16px;">
+                <div class="governance-rules-section">
+                  <div class="section-sub-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h4 style="font-size: 1rem; color: var(--text-primary);">Metadata-Native Constraints</h4>
+                    <button id="btnAddDomainRule" class="btn primary-btn btn-sm" style="padding: 4px 8px; font-size: 0.8rem;">+ Add Rule</button>
+                  </div>
+                  <table class="governance-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
+                    <thead>
+                      <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-muted);">
+                        <th style="padding: 8px;">Column</th>
+                        <th style="padding: 8px;">Constraint Type</th>
+                        <th style="padding: 8px;">Parameters</th>
+                        <th style="padding: 8px; text-align: right;">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody id="domainRulesBody">
+                      <!-- Populated dynamically -->
+                    </tbody>
+                  </table>
+                </div>
+
+                <div class="governance-relations-section" style="margin-top: 32px;">
+                  <div class="section-sub-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h4 style="font-size: 1rem; color: var(--text-primary);">Cross-Table Relationships</h4>
+                    <button id="btnAddDomainRelation" class="btn secondary-btn btn-sm" style="padding: 4px 8px; font-size: 0.8rem;">+ Add Relation</button>
+                  </div>
+                  <table class="governance-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
+                    <thead>
+                      <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-muted);">
+                        <th style="padding: 8px;">Source Column</th>
+                        <th style="padding: 8px; text-align: center;">Relation</th>
+                        <th style="padding: 8px;">Target Column</th>
+                        <th style="padding: 8px; text-align: right;">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody id="domainRelationsBody">
+                      <!-- Populated dynamically -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right: Interactive ER Diagram & Table Conformity -->
+            <div class="card domain-visuals-card" style="display: flex; flex-direction: column; height: 100%;">
+              <div class="card-header" style="border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
+                <h3>Domain Entity-Relationship Map</h3>
+              </div>
+              <div class="card-body er-visual-body" id="erCanvasContainer" style="flex: 1; position: relative; background: rgba(5, 7, 12, 0.4); border-radius: 8px; overflow: hidden; padding: 0;">
+                <svg id="erSvg" class="er-svg" style="width: 100%; height: 100%; min-height: 400px; display: block;">
+                  <!-- Custom SVG ER model elements -->
+                  <g id="erLinksGroup"></g>
+                  <g id="erNodesGroup"></g>
+                </svg>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 1: Graph Visualization & Files -->
+        <section id="tabGraph" class="tab-view active">
+          <div class="grid-layout">
+            <!-- Left: Metadata Graph Explorer -->
+            <div class="card graph-card">
+              <div class="card-header">
+                <h3>Metadata Graph Visualization</h3>
+                <div class="controls">
+                  <span id="activeDimensionsBadge" class="badge">country -> date -> customer</span>
+                  <button id="btnResetGraphView" class="text-btn">Reset zoom</button>
+                </div>
+              </div>
+              <div class="card-body graph-body" id="graphCanvasContainer">
+                <svg id="graphSvg" class="graph-svg">
+                  <!-- Rendered dynamically -->
+                  <g id="linksGroup"></g>
+                  <g id="nodesGroup"></g>
+                </svg>
+              </div>
+            </div>
+
+            <!-- Right: Table Statistics & Virtual File Layer -->
+            <div class="card files-card">
+              <div class="card-header">
+                <h3>Table Snapshot Metrics</h3>
+              </div>
+              <div class="card-body scroll-body">
+                <div class="metric-group">
+                  <div class="metric-card">
+                    <span class="label">Current Snapshot ID</span>
+                    <span class="value" id="valSnapshotId">-</span>
+                  </div>
+                  <div class="metric-card">
+                    <span class="label">Total Records</span>
+                    <span class="value" id="valRecords">0</span>
+                  </div>
+                  <div class="metric-card">
+                    <span class="label">Physical Files</span>
+                    <span class="value" id="valPhysicalFiles">0</span>
+                  </div>
+                  <div class="metric-card">
+                    <span class="label">Virtual Files</span>
+                    <span class="value" id="valVirtualFiles">0</span>
+                  </div>
+                </div>
+
+                <h4 class="sub-title">Virtual File Registry</h4>
+                <div class="vfl-list" id="virtualFileRegistry">
+                  <!-- Populated dynamically -->
+                  <div class="empty-state">No virtual files registered yet.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 2: Query Planner & Analyzer -->
+        <section id="tabQuery" class="tab-view">
+          <div class="query-planner-layout">
+            <!-- Left: Query Inputs -->
+            <div class="card query-form-card">
+              <div class="card-header">
+                <h3>Configure Query Predicates</h3>
+              </div>
+              <div class="card-body">
+                <form id="queryForm">
+                  <div class="form-section">
+                    <h4>Equality Predicates</h4>
+                    <div id="equalityPredicatesContainer" class="predicates-input-grid">
+                      <!-- Rendered dynamically based on dimension dimensions -->
+                    </div>
+                  </div>
+
+                  <div class="form-section">
+                    <h4>Range Predicates (inclusive start..end)</h4>
+                    <div id="rangePredicatesContainer" class="predicates-input-grid">
+                      <!-- Rendered dynamically based on dimension dimensions -->
+                    </div>
+                  </div>
+
+                  <div class="form-group row">
+                    <label for="querySnapshot" class="col-sm-4 col-form-label">
+                      Time Travel Snapshot
+                    </label>
+                    <div class="col-sm-8">
+                      <input type="number" id="querySnapshot" class="form-control" placeholder="Latest (Current)" min="0">
+                    </div>
+                  </div>
+
+                  <button type="submit" id="btnExecuteQuery" class="btn primary-btn btn-block">
+                    Compile Plan & Execute Pruning
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            <!-- Right: Performance Metrics & Selected Files -->
+            <div class="query-results-group">
+              <!-- Comparison Card -->
+              <div class="card comparison-card">
+                <div class="card-header">
+                  <h3>Graph Pruning Diagnostics</h3>
+                </div>
+                <div class="card-body">
+                  <div class="comp-chart">
+                    <div class="comp-bar-container">
+                      <div class="bar-label">
+                        <span>Traditional Manifest Scan (Total Files)</span>
+                        <strong id="valTotalPhysicalFilesScan">0</strong>
+                      </div>
+                      <div class="bar-bg">
+                        <div id="barTotalScan" class="bar-fill scan-fill" style="width: 100%;"></div>
+                      </div>
+                    </div>
+                    <div class="comp-bar-container">
+                      <div class="bar-label">
+                        <span>Graph Pruned Scan (Selected Files)</span>
+                        <strong id="valPrunedSelectedFiles">0</strong>
+                      </div>
+                      <div class="bar-bg">
+                        <div id="barPrunedScan" class="bar-fill pruned-fill" style="width: 0%;"></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="diagnostic-grid">
+                    <div class="diag-item">
+                      <span class="label">Visited Graph Nodes</span>
+                      <span class="valHighlight" id="valVisitedNodes">0</span>
+                    </div>
+                    <div class="diag-item">
+                      <span class="label">Skipped Physical Files</span>
+                      <span class="valHighlight green" id="valSkippedPhysical">0</span>
+                    </div>
+                    <div class="diag-item">
+                      <span class="label">Pruned Node Branches</span>
+                      <span class="valHighlight green" id="valPrunedNodes">0</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Selected Files Output -->
+              <div class="card plan-output-card">
+                <div class="card-header">
+                  <h3>Plan Output Virtual Files</h3>
+                </div>
+                <div class="card-body scroll-body" id="planOutputContainer">
+                  <div class="empty-state">Execute a query plan to inspect output files.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 3: Operations & Catalog Actions -->
+        <section id="tabOps" class="tab-view">
+          <div class="ops-layout">
+            <!-- Append Action -->
+            <div class="card">
+              <div class="card-header">
+                <h3>Append Data Files</h3>
+              </div>
+              <div class="card-body">
+                <form id="appendForm">
+                  <div class="form-group">
+                    <label for="appendFileName">File Name/Path</label>
+                    <input type="text" id="appendFileName" class="form-control" placeholder="data/events-0001.parquet" required>
+                  </div>
+                  <div class="form-group">
+                    <label for="appendRecords">Record Count</label>
+                    <input type="number" id="appendRecords" class="form-control" value="100" min="1" required>
+                  </div>
+                  <div class="form-group">
+                    <label>Partition Values</label>
+                    <div id="appendPartitionsContainer" class="partitions-input-grid">
+                      <!-- Rendered dynamically -->
+                    </div>
+                  </div>
+                  <button type="submit" class="btn primary-btn btn-block">Commit Append File</button>
+                </form>
+              </div>
+            </div>
+
+            <!-- Compaction Action -->
+            <div class="card">
+              <div class="card-header">
+                <h3>Compact Virtual Files</h3>
+              </div>
+              <div class="card-body">
+                <form id="compactForm">
+                  <div class="form-group">
+                    <label>Partition to Compact</label>
+                    <div id="compactPartitionsContainer" class="partitions-input-grid">
+                      <!-- Rendered dynamically -->
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label for="compactTargetFile">Target File Path</label>
+                    <input type="text" id="compactTargetFile" class="form-control" placeholder="data/vn-compacted.parquet" required>
+                  </div>
+                  <button type="submit" class="btn primary-btn btn-block">Trigger Partition Compaction</button>
+                </form>
+              </div>
+            </div>
+
+            <!-- Delete Action & Layout Optimization -->
+            <div class="ops-right-group">
+              <!-- Delete Action -->
+              <div class="card">
+                <div class="card-header">
+                  <h3>Register Delete Bitmap</h3>
+                </div>
+                <div class="card-body">
+                  <form id="deleteForm">
+                    <div class="form-group">
+                      <label for="deleteFilePath">Active Data File Path</label>
+                      <select id="deleteFilePath" class="form-control" required>
+                        <option value="">Select an active file...</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label for="deleteBitmapPath">Delete Bitmap Path</label>
+                      <input type="text" id="deleteBitmapPath" class="form-control" placeholder="paths/delete_bitmap.bin" required>
+                    </div>
+                    <button type="submit" class="btn delete-btn btn-block">Apply Row-Level Delete</button>
+                  </form>
+                </div>
+              </div>
+
+              <!-- Layout Optimizer -->
+              <div class="card">
+                <div class="card-header">
+                  <h3>Adaptive Layout Optimizer</h3>
+                </div>
+                <div class="card-body">
+                  <p class="description-text">
+                    Analyzes history of query planner predicates and optimizes graph layout dimension priorities dynamically.
+                  </p>
+                  <div class="optimizer-actions">
+                    <button id="btnRecommendLayout" class="btn secondary-btn">Analyze & Recommend</button>
+                    <button id="btnOptimizeLayout" class="btn primary-btn">Optimize Dimensions</button>
+                  </div>
+                  <div id="optimizerResult" class="optimizer-result">
+                    <!-- Results printed dynamically -->
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- Create Table Modal -->
+  <div id="createTableModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Create New Table</h2>
+        <span class="close-modal">&times;</span>
+      </div>
+      <div class="modal-body">
+        <form id="createTableForm">
+          <div class="form-group">
+            <label for="newTableName">Table Name (e.g. analytics.events)</label>
+            <input type="text" id="newTableName" class="form-control" placeholder="analytics.events" required>
+          </div>
+
+          <div class="form-group">
+            <label>Graph Dimensions (order defines indexing hierarchy)</label>
+            <div id="modalDimsList" class="dims-setup-list">
+              <!-- Dynamically populated or custom add -->
+              <div class="dim-row">
+                <input type="text" class="form-control dim-input" value="country" placeholder="Dimension name" required>
+              </div>
+              <div class="dim-row">
+                <input type="text" class="form-control dim-input" value="date" placeholder="Dimension name" required>
+              </div>
+            </div>
+            <button type="button" id="btnAddModalDim" class="text-btn">+ Add Dimension</button>
+          </div>
+
+          <div class="form-group">
+            <label>Table Schema Fields</label>
+            <table class="schema-setup-table">
+              <thead>
+                <tr>
+                  <th>Field Name</th>
+                  <th>Type</th>
+                  <th>Required</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="modalSchemaBody">
+                <tr>
+                  <td><input type="text" class="form-control field-name" value="event_id" required></td>
+                  <td>
+                    <select class="form-control field-type">
+                      <option value="string">String</option>
+                      <option value="int">Int</option>
+                      <option value="long">Long</option>
+                      <option value="boolean">Boolean</option>
+                      <option value="float">Float</option>
+                      <option value="double">Double</option>
+                    </select>
+                  </td>
+                  <td><input type="checkbox" class="field-required" checked></td>
+                  <td><button type="button" class="close-modal remove-row">&times;</button></td>
+                </tr>
+                <tr>
+                  <td><input type="text" class="form-control field-name" value="country" required></td>
+                  <td>
+                    <select class="form-control field-type">
+                      <option value="string" selected>String</option>
+                      <option value="int">Int</option>
+                    </select>
+                  </td>
+                  <td><input type="checkbox" class="field-required" checked></td>
+                  <td><button type="button" class="close-modal remove-row">&times;</button></td>
+                </tr>
+                <tr>
+                  <td><input type="text" class="form-control field-name" value="date" required></td>
+                  <td>
+                    <select class="form-control field-type">
+                      <option value="string" selected>String</option>
+                      <option value="date">Date</option>
+                    </select>
+                  </td>
+                  <td><input type="checkbox" class="field-required" checked></td>
+                  <td><button type="button" class="close-modal remove-row">&times;</button></td>
+                </tr>
+              </tbody>
+            </table>
+            <button type="button" id="btnAddModalField" class="text-btn">+ Add Schema Field</button>
+          </div>
+
+          <button type="submit" class="btn primary-btn btn-block">Initialize Table in Catalog</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Domain Modal -->
+  <div id="createDomainModal" class="modal">
+    <div class="modal-content" style="max-width: 450px;">
+      <div class="modal-header">
+        <h2>Create New Domain</h2>
+        <span class="close-modal close-domain-modal">&times;</span>
+      </div>
+      <div class="modal-body">
+        <form id="createDomainForm">
+          <div class="form-group">
+            <label for="newDomainName">Domain Name (e.g. finance)</label>
+            <input type="text" id="newDomainName" class="form-control" placeholder="finance" required>
+          </div>
+          <div class="form-group">
+            <label for="newDomainDesc">Description</label>
+            <textarea id="newDomainDesc" class="form-control" placeholder="Description of the data domain..." style="resize: vertical; min-height: 60px;"></textarea>
+          </div>
+          <button type="submit" class="btn primary-btn btn-block">Initialize Domain in Catalog</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Domain Rule Modal -->
+  <div id="addRuleModal" class="modal">
+    <div class="modal-content" style="max-width: 400px;">
+      <div class="modal-header">
+        <h2>Add Governance Rule</h2>
+        <span class="close-modal close-rule-modal">&times;</span>
+      </div>
+      <div class="modal-body">
+        <form id="addRuleForm">
+          <div class="form-group">
+            <label for="ruleColumnName">Target Column Name</label>
+            <input type="text" id="ruleColumnName" class="form-control" placeholder="e.g. event_id" required>
+          </div>
+          <div class="form-group">
+            <label for="ruleConstraintType">Constraint Type</label>
+            <select id="ruleConstraintType" class="form-control" required>
+              <option value="NotNull">NotNull (Verify zero nulls)</option>
+              <option value="MinMax">MinMax (Range limits)</option>
+              <option value="AllowedValues">AllowedValues (Enum whitelist)</option>
+              <option value="RegexMatch">RegexMatch (Pattern check)</option>
+            </select>
+          </div>
+          <div class="form-group" id="ruleConfigGroup" style="display: none;">
+            <label for="ruleConfigVal" id="lblRuleConfig">Parameters</label>
+            <input type="text" id="ruleConfigVal" class="form-control" placeholder="">
+          </div>
+          <button type="submit" class="btn primary-btn btn-block">Apply Rule to Domain</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Domain Relation Modal -->
+  <div id="addRelationModal" class="modal">
+    <div class="modal-content" style="max-width: 400px;">
+      <div class="modal-header">
+        <h2>Add Table Relationship</h2>
+        <span class="close-modal close-relation-modal">&times;</span>
+      </div>
+      <div class="modal-body">
+        <form id="addRelationForm">
+          <div class="form-group">
+            <label for="relFromTable">Source Table.Column</label>
+            <input type="text" id="relFromTable" class="form-control" placeholder="e.g. sales.customer" required>
+          </div>
+          <div class="form-group" style="text-align: center; font-weight: bold; margin: 4px 0; color: var(--text-muted);">
+            ➔ Joins with ➔
+          </div>
+          <div class="form-group">
+            <label for="relToTable">Target Table.Column</label>
+            <input type="text" id="relToTable" class="form-control" placeholder="e.g. customers.id" required>
+          </div>
+          <button type="submit" class="btn primary-btn btn-block">Register Relationship</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="index.js"></script>
+</body>
+</html>

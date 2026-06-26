@@ -6,7 +6,9 @@ services:
       - .:/workspace
       - cargo-cache:/usr/local/cargo/registry
       - target-cache:/workspace/target
-    command: cargo test
+    ports:
+      - "8000:8000"
+    command: /usr/local/cargo/bin/cargo test --locked
 
   checks:
     image: rust:1.88-slim
@@ -15,7 +17,7 @@ services:
       - .:/workspace
       - cargo-cache:/usr/local/cargo/registry
       - target-cache:/workspace/target
-    command: sh -lc "/usr/local/cargo/bin/cargo test && sh scripts/security_check.sh"
+    command: sh -lc "/usr/local/cargo/bin/cargo test --locked && sh scripts/security_check.sh"
 
 volumes:
   cargo-cache:

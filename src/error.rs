@@ -27,6 +27,9 @@ pub enum NemoError {
     #[error("table metadata not found: {0}")]
     TableNotFound(PathBuf),
 
+    #[error("validation error: {0}")]
+    Validation(String),
+
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
