@@ -5,6 +5,7 @@
 - Table names reject absolute paths, separators, and `..`.
 - Data file paths must be relative and cannot contain `..`.
 - Metadata and snapshot writes use temp-file plus rename.
+- Metadata and snapshot writes include SHA-256 sidecar checksums.
 - CLI arguments are parsed, not executed as shell.
 - No secrets are required for the MVP.
 - Snapshot files are immutable once written.
@@ -23,7 +24,7 @@
 - Reject absolute or parent-relative paths for every persisted file reference.
 - Keep query predicates parsed as data. Do not pass predicate text, table names, paths, or metadata values to a shell.
 - Add bounded traversal and predicate normalization before supporting range predicates in production.
-- Add signatures or checksums before accepting metadata from object storage, replication, or external writers.
+- Run `table validate` before trusting copied or externally produced table metadata.
 - Run `scripts/security_check.sh` before commits that change Rust source or security docs.
 
 ## Known Gaps
@@ -32,6 +33,6 @@
 - No signed metadata.
 - No object storage auth model.
 - No distributed lock manager.
-- No cryptographic integrity check for metadata or snapshots.
+- Checksums are local sidecars only; no signed metadata yet.
 - No stale-reference sweeper for virtual files.
 - No authorization model around graph dimensions, stats, or adaptive optimizer inputs.

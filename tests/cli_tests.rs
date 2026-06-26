@@ -279,3 +279,99 @@ fn cli_features_integration() {
     let stdout = String::from_utf8_lossy(&optimize_output.stdout);
     assert!(stdout.contains("Optimized dimension order") || stdout.contains("already optimal"));
 }
+
+#[test]
+fn cli_compact_plan_validate_and_query_history() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let schema_path = write_schema(&tempdir);
+    let table_path = tempdir.path().join("events");
+
+    let create = nemo()
+        .args([
+            "table",
+            "create",
+            table_path.to_str().unwrap(),
+            "--schema",
+            schema_path.to_str().unwrap(),
+            "--graph-dim",
+            "country",
+            "--graph-dim",
+            "date",
+        ])
+        .output()
+        .unwrap();
+    assert!(create.status.success());
+
+    for file in ["data/vn-1.parquet", "data/vn-2.parquet"] {
+        let append = nemo()
+            .args([
+                "table",
+                "append",
+                table_path.to_str().unwrap(),
+                "--file",
+                file,
+                "--records",
+                "10",
+                "--partition",
+                "country=VN",
+                "--partition",
+                "date=2026-06-25",
+            ])
+            .output()
+            .unwrap();
+        assert!(append.status.success());
+    }
+
+    let compact_plan = nemo()
+        .args([
+            "table",
+            "compact-plan",
+            table_path.to_str().unwrap(),
+            "--partition",
+            "country=VN",
+            "--partition",
+            "date=2026-06-25",
+            "--target-file",
+            "data/vn-planned.parquet",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        compact_plan.status.success(),
+        "compact-plan failed: {}",
+        String::from_utf8_lossy(&compact_plan.stderr)
+    );
+    let compact_plan: Value = serde_json::from_slice(&compact_plan.stdout).unwrap();
+    assert_eq!(compact_plan["groups"][0]["physical_files"].as_array().unwrap().len(), 2);
+    assert_eq!(compact_plan["groups"][0]["suggested_physical_file"], "data/vn-planned.parquet");
+
+    let validate = nemo()
+        .args(["table", "validate", table_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(validate.status.success());
+    assert!(String::from_utf8_lossy(&validate.stdout).contains("integrity ok"));
+
+    let plan = nemo()
+        .args([
+            "table",
+            "plan",
+            table_path.to_str().unwrap(),
+            "--predicate",
+            "country=VN",
+            "--predicate",
+            "date=2026-06-25",
+        ])
+        .output()
+        .unwrap();
+    assert!(plan.status.success());
+
+    let history = nemo()
+        .args(["table", "query-history", table_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(history.status.success());
+    let history: Value = serde_json::from_slice(&history.stdout).unwrap();
+    assert_eq!(history.as_array().unwrap().len(), 1);
+    assert_eq!(history[0]["equality_predicates"]["country"], "VN");
+}

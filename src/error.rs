@@ -30,10 +30,12 @@ pub enum NemoError {
     #[error("validation error: {0}")]
     Validation(String),
 
+    #[error("integrity error: {0}")]
+    Integrity(String),
+
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
     #[error(transparent)]
     Json(#[from] serde_json::Error),
 }
-

@@ -19,6 +19,14 @@ cargo run --bin nemo -- table plan ./warehouse/events \
   --predicate country=VN \
   --predicate date=2026-06 \
   --predicate customer=123
+
+cargo run --bin nemo -- table compact-plan ./warehouse/events \
+  --partition country=VN \
+  --partition date=2026-06 \
+  --partition customer=123 \
+  --target-file data/events-vn-2026-06-c123-compact.parquet
+
+cargo run --bin nemo -- table validate ./warehouse/events
 ```
 
 Catalog workflow:

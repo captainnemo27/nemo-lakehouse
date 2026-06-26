@@ -74,12 +74,25 @@ enum TableCommand {
         #[arg(long = "target-file", required = true)]
         target_file: String,
     },
+    CompactPlan {
+        path: PathBuf,
+        #[arg(long = "partition", value_parser = parse_key_value, required = true)]
+        partitions: Vec<(String, String)>,
+        #[arg(long = "target-file")]
+        target_file: Option<String>,
+    },
     Delete {
         path: PathBuf,
         #[arg(long = "file", required = true)]
         file: String,
         #[arg(long = "delete-bitmap", required = true)]
         delete_bitmap: String,
+    },
+    Validate {
+        path: PathBuf,
+    },
+    QueryHistory {
+        path: PathBuf,
     },
     Optimize {
         path: PathBuf,
@@ -214,7 +227,10 @@ fn run_table(command: TableCommand) -> anyhow::Result<()> {
             let plan = Table::new(path).plan_files_with_predicates_at_snapshot(predicates, snapshot)?;
             let result = serde_json::json!({
                 "visited_nodes": plan.visited_nodes,
+                "total_indexed_nodes": plan.total_indexed_node_count,
+                "pruned_nodes": plan.pruned_node_count,
                 "manifest_scan_physical_files": plan.total_indexed_physical_file_count,
+                "pruned_physical_files": plan.pruned_physical_file_count,
                 "selected_physical_files": plan.selected_physical_file_count,
                 "skipped_physical_files": plan.skipped_physical_file_count(),
                 "virtual_files": plan.virtual_files,
@@ -231,6 +247,15 @@ fn run_table(command: TableCommand) -> anyhow::Result<()> {
             let snapshot = Table::new(path).compact_files(partition_map, target_file)?;
             println!("{}", serde_json::to_string_pretty(&snapshot)?);
         }
+        TableCommand::CompactPlan {
+            path,
+            partitions,
+            target_file,
+        } => {
+            let partition_map: BTreeMap<String, String> = partitions.into_iter().collect();
+            let plan = Table::new(path).compact_plan(partition_map, target_file)?;
+            println!("{}", serde_json::to_string_pretty(&plan)?);
+        }
         TableCommand::Delete {
             path,
             file,
@@ -238,6 +263,14 @@ fn run_table(command: TableCommand) -> anyhow::Result<()> {
         } => {
             let snapshot = Table::new(path).delete_rows(&file, delete_bitmap)?;
             println!("{}", serde_json::to_string_pretty(&snapshot)?);
+        }
+        TableCommand::Validate { path } => {
+            Table::new(path).validate_integrity()?;
+            println!("integrity ok");
+        }
+        TableCommand::QueryHistory { path } => {
+            let history = Table::new(path).query_history()?;
+            println!("{}", serde_json::to_string_pretty(&history)?);
         }
         TableCommand::Optimize {
             path,

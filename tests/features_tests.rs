@@ -176,6 +176,118 @@ fn test_adaptive_graph_optimizer() {
 }
 
 #[test]
+fn test_metadata_integrity_checksums_and_tamper_detection() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let table_path = tempdir.path().join("events");
+    let table = Table::create(
+        &table_path,
+        "events",
+        schema(),
+        vec!["country".into(), "date".into()],
+    )
+    .unwrap();
+
+    table
+        .append_files(vec![DataFile::new(
+            "data/vn.parquet",
+            100,
+            partitions(&[("country", "VN"), ("date", "2026-06-25")]),
+        )
+        .unwrap()])
+        .unwrap();
+
+    assert!(table.metadata_checksum_path().exists());
+    assert!(table.snapshot_checksum_path(1).exists());
+    table.validate_integrity().unwrap();
+
+    let metadata_path = table.metadata_path();
+    let mut metadata_json = std::fs::read_to_string(&metadata_path).unwrap();
+    metadata_json = metadata_json.replace("\"table_name\": \"events\"", "\"table_name\": \"tampered\"");
+    std::fs::write(&metadata_path, metadata_json).unwrap();
+
+    let err = table.validate_integrity().unwrap_err().to_string();
+    assert!(err.contains("checksum mismatch"));
+}
+
+#[test]
+fn test_virtual_compaction_planner_is_read_only() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let table_path = tempdir.path().join("events");
+    let table = Table::create(
+        &table_path,
+        "events",
+        schema(),
+        vec!["country".into(), "date".into()],
+    )
+    .unwrap();
+
+    table
+        .append_files(vec![DataFile::new(
+            "data/vn-1.parquet",
+            100,
+            partitions(&[("country", "VN"), ("date", "2026-06-25")]),
+        )
+        .unwrap()])
+        .unwrap();
+    table
+        .append_files(vec![DataFile::new(
+            "data/vn-2.parquet",
+            200,
+            partitions(&[("country", "VN"), ("date", "2026-06-25")]),
+        )
+        .unwrap()])
+        .unwrap();
+
+    let before_snapshot = table.load_metadata().unwrap().current_snapshot_id;
+    let plan = table
+        .compact_plan(
+            partitions(&[("country", "VN"), ("date", "2026-06-25")]),
+            Some("data/vn-compact-plan.parquet".to_string()),
+        )
+        .unwrap();
+
+    assert_eq!(plan.groups.len(), 1);
+    assert_eq!(plan.groups[0].physical_files.len(), 2);
+    assert_eq!(plan.groups[0].record_count, 300);
+    assert_eq!(plan.groups[0].suggested_physical_file, "data/vn-compact-plan.parquet");
+    assert_eq!(table.load_metadata().unwrap().current_snapshot_id, before_snapshot);
+}
+
+#[test]
+fn test_query_history_records_predicates_for_optimizer() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let table_path = tempdir.path().join("events");
+    let table = Table::create(
+        &table_path,
+        "events",
+        schema(),
+        vec!["country".into(), "date".into()],
+    )
+    .unwrap();
+
+    table
+        .append_files(vec![DataFile::new(
+            "data/vn.parquet",
+            100,
+            partitions(&[("country", "VN"), ("date", "2026-06-25")]),
+        )
+        .unwrap()])
+        .unwrap();
+
+    table
+        .plan_files(partitions(&[("country", "VN"), ("date", "2026-06-25")]))
+        .unwrap();
+
+    let history = table.query_history().unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].dimensions, vec!["country", "date"]);
+    assert_eq!(
+        history[0].equality_predicates.get("country"),
+        Some(&"VN".to_string())
+    );
+}
+
+#[test]
 fn test_domain_governance_rules() {
     let tempdir = tempfile::tempdir().unwrap();
     let catalog = nemo_lakehouse::catalog::LocalCatalog::new(tempdir.path());

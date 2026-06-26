@@ -1,13 +1,14 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fs::{self, File};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
+use sha2::{Digest, Sha256};
 
 use crate::error::{NemoError, Result};
 use crate::graph::{DimensionPredicate, QueryPlan};
-use crate::metadata::{DataFile, Snapshot, TableMetadata, VirtualFile};
+use crate::metadata::{CompactionGroup, CompactionPlan, DataFile, QueryHistoryEntry, Snapshot, TableMetadata, VirtualFile};
 use crate::schema::Schema;
 
 #[derive(Debug, Clone)]
@@ -44,6 +45,10 @@ impl Table {
         self.path.join("_nemo").join("metadata.json")
     }
 
+    pub fn metadata_checksum_path(&self) -> PathBuf {
+        checksum_path(&self.metadata_path())
+    }
+
     pub fn snapshots_dir(&self) -> PathBuf {
         self.path.join("_nemo").join("snapshots")
     }
@@ -52,11 +57,16 @@ impl Table {
         self.snapshots_dir().join(format!("{snapshot_id:020}.json"))
     }
 
+    pub fn snapshot_checksum_path(&self, snapshot_id: u64) -> PathBuf {
+        checksum_path(&self.snapshot_path(snapshot_id))
+    }
+
     pub fn load_metadata(&self) -> Result<TableMetadata> {
         let path = self.metadata_path();
         if !path.exists() {
             return Err(NemoError::TableNotFound(path));
         }
+        verify_checksum_if_present(&path)?;
         let file = File::open(path)?;
         let metadata: TableMetadata = serde_json::from_reader(file)?;
         metadata.validate()?;
@@ -64,7 +74,9 @@ impl Table {
     }
 
     pub fn load_snapshot(&self, snapshot_id: u64) -> Result<Snapshot> {
-        let file = File::open(self.snapshot_path(snapshot_id))?;
+        let path = self.snapshot_path(snapshot_id);
+        verify_checksum_if_present(&path)?;
+        let file = File::open(path)?;
         Ok(serde_json::from_reader(file)?)
     }
 
@@ -234,7 +246,12 @@ impl Table {
         let (active_ids, active_vfs) = self.resolve_active_virtual_files(snapshot_id)?;
         let mut plan = metadata.graph.plan(&predicates, &active_vfs, &active_ids)?;
         self.populate_plan_delete_bitmaps(&mut plan, snapshot_id)?;
-        self.record_query_from_keys(predicates.keys().cloned().collect())?;
+        self.record_query_entry(QueryHistoryEntry {
+            created_at: Utc::now(),
+            dimensions: sorted_keys(predicates.keys().cloned()),
+            equality_predicates: predicates,
+            range_predicates: BTreeMap::new(),
+        })?;
         Ok(plan)
     }
 
@@ -256,7 +273,7 @@ impl Table {
             .graph
             .plan_with_predicates(&predicates, &active_vfs, &active_ids)?;
         self.populate_plan_delete_bitmaps(&mut plan, snapshot_id)?;
-        self.record_query_from_keys(predicates.keys().cloned().collect())?;
+        self.record_query_entry(history_entry_from_predicates(predicates))?;
         Ok(plan)
     }
 
@@ -276,7 +293,9 @@ impl Table {
             }
         }
 
-        let plan = self.plan_files(partition.clone())?;
+        let (_active_ids, active_vfs) = self.resolve_active_virtual_files_with_metadata(&metadata, None)?;
+        let active_ids = active_vfs.keys().cloned().collect();
+        let plan = metadata.graph.plan(&partition, &active_vfs, &active_ids)?;
         let vf_ids_to_remove: Vec<String> = plan.virtual_files.iter().map(|vf| vf.id.clone()).collect();
         let total_physical_files: usize = plan.virtual_files.iter().map(|vf| vf.physical_files.len()).sum();
         let total_records: u64 = plan.virtual_files.iter().map(|vf| vf.record_count).sum();
@@ -322,6 +341,53 @@ impl Table {
         atomic_write_json(&self.metadata_path(), &metadata)?;
 
         Ok(snapshot)
+    }
+
+    pub fn compact_plan(
+        &self,
+        partition: BTreeMap<String, String>,
+        target_file_name: Option<String>,
+    ) -> Result<CompactionPlan> {
+        let metadata = self.load_metadata()?;
+        for dim in &metadata.graph.dimensions {
+            if !partition.contains_key(dim) {
+                return Err(NemoError::Commit(format!(
+                    "compaction planning requires fully specified leaf partition: missing dimension {}",
+                    dim
+                )));
+            }
+        }
+
+        let (_active_ids, active_vfs) = self.resolve_active_virtual_files_with_metadata(&metadata, None)?;
+        let active_ids = active_vfs.keys().cloned().collect();
+        let plan = metadata.graph.plan(&partition, &active_vfs, &active_ids)?;
+        let source_virtual_file_ids: Vec<String> = plan.virtual_files.iter().map(|vf| vf.id.clone()).collect();
+        let physical_files: Vec<String> = plan
+            .virtual_files
+            .iter()
+            .flat_map(|vf| vf.physical_files.clone())
+            .collect();
+        let record_count: u64 = plan.virtual_files.iter().map(|vf| vf.record_count).sum();
+
+        let groups = if physical_files.len() > 1 {
+            vec![CompactionGroup {
+                source_virtual_file_ids,
+                physical_files,
+                record_count,
+                suggested_virtual_file_id: format!(
+                    "vf-plan-{:020}",
+                    metadata.current_snapshot_id.unwrap_or(0) + 1
+                ),
+                suggested_physical_file: target_file_name.unwrap_or_else(|| {
+                    let suffix = metadata.current_snapshot_id.unwrap_or(0) + 1;
+                    format!("data/compact-{suffix:020}.parquet")
+                }),
+            }]
+        } else {
+            Vec::new()
+        };
+
+        Ok(CompactionPlan { partition, groups })
     }
 
     pub fn delete_rows(
@@ -419,7 +485,12 @@ impl Table {
     }
 
     pub fn record_query(&self, dimensions: &[String]) -> Result<()> {
-        self.record_query_from_keys(dimensions.to_vec())
+        self.record_query_entry(QueryHistoryEntry {
+            created_at: Utc::now(),
+            dimensions: dimensions.to_vec(),
+            equality_predicates: BTreeMap::new(),
+            range_predicates: BTreeMap::new(),
+        })
     }
 
     pub fn optimize_layout(&self, dry_run: bool) -> Result<Option<Vec<String>>> {
@@ -430,8 +501,7 @@ impl Table {
             return Ok(None);
         }
 
-        let file = File::open(&history_path)?;
-        let history: Vec<Vec<String>> = serde_json::from_reader(file).unwrap_or_default();
+        let history = self.load_query_history()?;
         if history.is_empty() {
             return Ok(None);
         }
@@ -439,7 +509,7 @@ impl Table {
         // Count frequency of queried dimensions
         let mut frequency_map = std::collections::HashMap::new();
         for query in history {
-            for dim in query {
+            for dim in query.dimensions {
                 *frequency_map.entry(dim).or_insert(0) += 1;
             }
         }
@@ -463,6 +533,53 @@ impl Table {
         }
 
         Ok(Some(new_dimensions))
+    }
+
+    pub fn validate_integrity(&self) -> Result<()> {
+        verify_checksum_required(&self.metadata_path())?;
+        let metadata = self.load_metadata()?;
+
+        let mut current_id = metadata.current_snapshot_id;
+        let mut seen_snapshots = HashSet::new();
+        while let Some(snapshot_id) = current_id {
+            if !seen_snapshots.insert(snapshot_id) {
+                return Err(NemoError::Integrity(format!(
+                    "snapshot lineage cycle detected at snapshot {}",
+                    snapshot_id
+                )));
+            }
+            verify_checksum_required(&self.snapshot_path(snapshot_id))?;
+            let snapshot = self.load_snapshot(snapshot_id)?;
+            for vf_id in snapshot
+                .virtual_file_ids
+                .iter()
+                .chain(snapshot.removed_virtual_file_ids.iter())
+            {
+                if !metadata.virtual_files.contains_key(vf_id) && snapshot.virtual_file_ids.contains(vf_id) {
+                    return Err(NemoError::Integrity(format!(
+                        "snapshot {} references missing virtual file {}",
+                        snapshot_id, vf_id
+                    )));
+                }
+            }
+            current_id = snapshot.parent_snapshot_id;
+        }
+
+        let (active_ids, active_vfs) = self.resolve_active_virtual_files_with_metadata(&metadata, None)?;
+        let plan = metadata.graph.plan_with_predicates(&BTreeMap::new(), &active_vfs, &active_ids)?;
+        for virtual_file in &plan.virtual_files {
+            if !metadata.virtual_files.contains_key(&virtual_file.id) {
+                return Err(NemoError::Integrity(format!(
+                    "graph references missing virtual file {}",
+                    virtual_file.id
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn query_history(&self) -> Result<Vec<QueryHistoryEntry>> {
+        self.load_query_history()
     }
 
     pub fn rebuild_graph(&self, metadata: &mut TableMetadata, dimensions: Vec<String>) -> Result<()> {
@@ -520,41 +637,136 @@ impl Table {
         Ok(())
     }
 
-    fn record_query_from_keys(&self, keys: Vec<String>) -> Result<()> {
-        if keys.is_empty() {
-            return Ok(());
-        }
+    fn record_query_entry(&self, entry: QueryHistoryEntry) -> Result<()> {
         let history_path = self.path.join("_nemo").join("query_history.json");
-        let mut history: Vec<Vec<String>> = if history_path.exists() {
-            let file = File::open(&history_path)?;
-            serde_json::from_reader(file).unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        history.push(keys);
-        let mut file = File::create(&history_path)?;
-        serde_json::to_writer_pretty(&mut file, &history)?;
-        file.write_all(b"\n")?;
-        file.sync_all()?;
+        let mut history = self.load_query_history()?;
+        history.push(entry);
+        atomic_write_json(&history_path, &history)?;
         Ok(())
+    }
+
+    fn load_query_history(&self) -> Result<Vec<QueryHistoryEntry>> {
+        let history_path = self.path.join("_nemo").join("query_history.json");
+        if !history_path.exists() {
+            return Ok(Vec::new());
+        }
+        let file = File::open(&history_path)?;
+        let value: serde_json::Value = serde_json::from_reader(file)?;
+        if value.as_array().is_some_and(|items| {
+            items
+                .first()
+                .is_some_and(|item| item.as_array().is_some())
+        }) {
+            let legacy: Vec<Vec<String>> = serde_json::from_value(value)?;
+            return Ok(legacy
+                .into_iter()
+                .map(|dimensions| QueryHistoryEntry {
+                    created_at: Utc::now(),
+                    dimensions,
+                    equality_predicates: BTreeMap::new(),
+                    range_predicates: BTreeMap::new(),
+                })
+                .collect());
+        }
+        Ok(serde_json::from_value(value).unwrap_or_default())
     }
 }
 
-fn atomic_write_json<T: serde::Serialize>(path: &Path, value: &T) -> Result<()> {
+fn checksum_path(path: &Path) -> PathBuf {
+    path.with_file_name(format!(
+        "{}.sha256",
+        path.file_name().and_then(|name| name.to_str()).unwrap_or("file")
+    ))
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let digest = hasher.finalize();
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn verify_checksum_if_present(path: &Path) -> Result<()> {
+    let checksum = checksum_path(path);
+    if checksum.exists() {
+        verify_checksum_required(path)?;
+    }
+    Ok(())
+}
+
+fn verify_checksum_required(path: &Path) -> Result<()> {
+    let checksum = checksum_path(path);
+    if !checksum.exists() {
+        return Err(NemoError::Integrity(format!(
+            "checksum sidecar missing for {}",
+            path.display()
+        )));
+    }
+    let expected = fs::read_to_string(&checksum)?.trim().to_string();
+    let mut bytes = Vec::new();
+    File::open(path)?.read_to_end(&mut bytes)?;
+    let actual = sha256_hex(&bytes);
+    if actual != expected {
+        return Err(NemoError::Integrity(format!(
+            "checksum mismatch for {}",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
+fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
     let parent = path
         .parent()
         .ok_or_else(|| NemoError::InvalidPath(format!("path has no parent: {}", path.display())))?;
     fs::create_dir_all(parent)?;
     let tmp_path = path.with_file_name(format!(
         ".{}.tmp",
-        path.file_name().and_then(|name| name.to_str()).unwrap_or("metadata")
+        path.file_name().and_then(|name| name.to_str()).unwrap_or("file")
     ));
     {
         let mut file = File::create(&tmp_path)?;
-        serde_json::to_writer_pretty(&mut file, value)?;
-        file.write_all(b"\n")?;
+        file.write_all(bytes)?;
         file.sync_all()?;
     }
     fs::rename(tmp_path, path)?;
     Ok(())
+}
+
+fn atomic_write_json<T: serde::Serialize>(path: &Path, value: &T) -> Result<()> {
+    let mut bytes = serde_json::to_vec_pretty(value)?;
+    bytes.push(b'\n');
+    atomic_write_bytes(path, &bytes)?;
+    let checksum = format!("{}\n", sha256_hex(&bytes));
+    atomic_write_bytes(&checksum_path(path), checksum.as_bytes())?;
+    Ok(())
+}
+
+fn sorted_keys(keys: impl Iterator<Item = String>) -> Vec<String> {
+    let mut keys: Vec<String> = keys.collect();
+    keys.sort();
+    keys.dedup();
+    keys
+}
+
+fn history_entry_from_predicates(predicates: BTreeMap<String, DimensionPredicate>) -> QueryHistoryEntry {
+    let dimensions = sorted_keys(predicates.keys().cloned());
+    let mut equality_predicates = BTreeMap::new();
+    let mut range_predicates = BTreeMap::new();
+    for (dimension, predicate) in predicates {
+        match predicate {
+            DimensionPredicate::Equal(value) => {
+                equality_predicates.insert(dimension, value);
+            }
+            DimensionPredicate::Range { lower, upper, .. } => {
+                range_predicates.insert(dimension, (lower, upper));
+            }
+        }
+    }
+    QueryHistoryEntry {
+        created_at: Utc::now(),
+        dimensions,
+        equality_predicates,
+        range_predicates,
+    }
 }

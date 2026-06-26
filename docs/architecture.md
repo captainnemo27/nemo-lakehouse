@@ -25,6 +25,8 @@ For a synthetic table with 8 countries, 31 dates, 100 customers, and 2 files per
 
 Every append produces a virtual file that can reference one or more physical files. This lets engines plan against larger logical units before expensive compaction rewrites happen.
 
+`compact-plan` is intentionally read-only. It returns candidate merge groups, source virtual-file IDs, physical files, record counts, and suggested output names without changing snapshots or metadata.
+
 ## 3. Immutable Snapshots
 
 Snapshots remain immutable for auditability. Metadata can evolve to point at graph and virtual file updates.
@@ -36,3 +38,15 @@ The metadata model reserves per-column stat fields for `delete_bitmap_ref`. A fu
 ## 5. Cost Model / AI Optimizer Placeholder
 
 This MVP records graph dimensions and planning behavior. Later versions can use query history to evolve graph dimensions and virtual-file grouping.
+
+Current query history is stored in `_nemo/query_history.json` as structured entries containing timestamp, queried dimensions, equality predicates, and range predicates. `optimize --recommend` uses dimension frequency to recommend graph order.
+
+## Metadata Integrity
+
+Every metadata and snapshot JSON write also writes a `.sha256` sidecar. `table validate` verifies:
+
+- `metadata.json.sha256`
+- every snapshot checksum in current lineage
+- snapshot lineage cycles
+- missing virtual-file references in active snapshots
+- graph references to missing active virtual files

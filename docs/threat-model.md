@@ -33,6 +33,7 @@
 
 - Strict path validation.
 - Atomic local metadata replacement.
+- SHA-256 sidecar validation for metadata and snapshots.
 - Immutable snapshot files.
 - Single-writer assumption documented.
 - Typed predicate parsing in the CLI.
@@ -43,5 +44,5 @@
 - Validate graph membership against snapshot lineage before planning.
 - Fail closed when graph nodes reference missing virtual-file IDs.
 - Add traversal limits, normalized predicate forms, and cost guards for range predicates.
-- Add metadata signatures, checksums, or content-addressed commits before multi-writer or object-storage deployments.
+- Add metadata signatures or content-addressed commits before multi-writer or object-storage deployments.
 - Record lineage and audit events for graph dimension changes and optimizer-driven graph rewrites.

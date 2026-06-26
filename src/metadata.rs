@@ -62,6 +62,31 @@ pub struct VirtualFile {
     pub record_count: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompactionPlan {
+    pub partition: BTreeMap<String, String>,
+    pub groups: Vec<CompactionGroup>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompactionGroup {
+    pub source_virtual_file_ids: Vec<String>,
+    pub physical_files: Vec<String>,
+    pub record_count: u64,
+    pub suggested_virtual_file_id: String,
+    pub suggested_physical_file: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueryHistoryEntry {
+    pub created_at: DateTime<Utc>,
+    pub dimensions: Vec<String>,
+    #[serde(default)]
+    pub equality_predicates: BTreeMap<String, String>,
+    #[serde(default)]
+    pub range_predicates: BTreeMap<String, (Option<String>, Option<String>)>,
+}
+
 impl VirtualFile {
     pub fn from_data_files(id: impl Into<String>, data_files: &[DataFile]) -> Result<Self> {
         if data_files.is_empty() {
@@ -167,4 +192,3 @@ impl TableMetadata {
         Ok(())
     }
 }
-

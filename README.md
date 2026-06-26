@@ -72,6 +72,14 @@ cargo run --bin nemo -- table append ./warehouse/events \
 cargo run --bin nemo -- table plan ./warehouse/events \
   --predicate country=VN \
   --predicate date=2026-06
+
+cargo run --bin nemo -- table compact-plan ./warehouse/events \
+  --partition country=VN \
+  --partition date=2026-06 \
+  --target-file data/events-vn-compact.parquet
+
+cargo run --bin nemo -- table validate ./warehouse/events
+cargo run --bin nemo -- table query-history ./warehouse/events
 ```
 
 With Docker:
